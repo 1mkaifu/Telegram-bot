@@ -135,12 +135,21 @@ def admin_panel():
     btn_unban = types.KeyboardButton("✅ Unban User")
     btn_add = types.KeyboardButton("➕ Add Credits")
     btn_remove = types.KeyboardButton("➖ Remove Credits")
+    
+    # NEW BUTTONS ADDED HERE
+    btn_total_users = types.KeyboardButton("👥 Total Users")
+    btn_user_history = types.KeyboardButton("📜 User All History")
+    btn_active_status = types.KeyboardButton("📈 User Active Status")
+    
     btn_broadcast = types.KeyboardButton("📢 Broadcast")
     btn_special = types.KeyboardButton("🌟 Add Special User")
     btn_rmspecial = types.KeyboardButton("❌ Remove Special User")
     btn_history = types.KeyboardButton("📜 Check History")
     btn_back = types.KeyboardButton("🔙 Back to Main Menu")
-    markup.add(btn_ban, btn_unban, btn_add, btn_remove, btn_broadcast, btn_special, btn_rmspecial, btn_history, btn_back)
+    
+    markup.add(btn_ban, btn_unban, btn_add, btn_remove, 
+               btn_total_users, btn_user_history, btn_active_status, # Added in layout
+               btn_broadcast, btn_special, btn_rmspecial, btn_history, btn_back)
     return markup
 
 # --- SAFE DELETE FUNCTION ---
@@ -275,6 +284,16 @@ def handle_all_messages(message):
         elif text == "➖ Remove Credits":
             bot.reply_to(message, "Enter User ID:")
             bot.register_next_step_handler(message, ask_credits_remove)
+        
+        # --- NEW ADMIN FUNCTIONS ---
+        elif text == "👥 Total Users":
+            show_total_users(message)
+        elif text == "📜 User All History":
+            bot.reply_to(message, "📩 Send User ID to view their history:")
+            bot.register_next_step_handler(message, show_user_history)
+        elif text == "📈 User Active Status":
+            check_active_status(message)
+            
         elif text == "🌟 Add Special User":
             bot.reply_to(message, "Enter User ID:")
             bot.register_next_step_handler(message, add_special_user)
@@ -710,7 +729,7 @@ def process_service_query(message, service_name):
         refund_credit(user_id)
         bot.send_message(user_id, f"⚠️ Unexpected Error. 💸 Credit Refunded.\n{e}")
 
-# --- ADMIN FUNCTIONS ---
+# --- ADMIN FUNCTIONS (OLD) ---
 def ban_user(message):
     target_id = str(message.text.strip())
     db = load_db()
@@ -821,6 +840,91 @@ def show_full_history(message):
         buff += entry
     if len(buff) > 0:
         bot.send_message(message.chat.id, buff, parse_mode="Markdown")
+
+# --- NEW ADMIN FUNCTIONS ---
+
+# 1. Total Users
+def show_total_users(message):
+    db = load_db()
+    total_users = len(db["users"])
+    total_banned = len(db["banned"])
+    total_special = len(db["special"])
+    text = (
+        f"👥 *Bot Statistics:*\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"✅ Total Users: `{total_users}`\n"
+        f"🚫 Banned Users: `{total_banned}`\n"
+        f"🌟 Special Users: `{total_special}`"
+    )
+    bot.reply_to(message, text, parse_mode="Markdown")
+
+# 2. User All History
+def show_user_history(message):
+    target_id = str(message.text.strip())
+    db = load_db()
+    user_history = [h for h in db.get("history", []) if h['user_id'] == target_id]
+    
+    if not user_history:
+        bot.reply_to(message, f"⚠️ No history found for User ID: `{target_id}`", parse_mode="Markdown")
+        return
+
+    buff = f"📜 *History for User: `{target_id}`*\n\n"
+    for h in user_history:
+        entry = f"Service: {h['service']}\nQuery: `{h['query']}`\nTime: {h['time']}\n-------------------\n"
+        if len(buff) + len(entry) > 3800:
+            bot.send_message(message.chat.id, buff, parse_mode="Markdown")
+            buff = ""
+        buff += entry
+    
+    if len(buff) > 0:
+        bot.send_message(message.chat.id, buff, parse_mode="Markdown")
+
+# 3. User Active Status
+def check_active_status(message):
+    db = load_db()
+    if not db["users"]:
+        bot.reply_to(message, "No users in database.")
+        return
+
+    buff = "📈 *User Active Status (Last 24 Hours):*\n"
+    buff += "━━━━━━━━━━━━━━━━━━━━\n"
+    
+    now = datetime.datetime.now()
+    active_count = 0
+    inactive_count = 0
+    
+    # We will only show the count summary to avoid flooding if users are many
+    # But if you want a list, uncomment the lines below
+    
+    for uid in db["users"]:
+        # Find last activity
+        last_active_str = "Never"
+        is_active = False
+        
+        # Check history for this user
+        user_hist = [h for h in db["history"] if h['user_id'] == uid]
+        if user_hist:
+            last_time_str = user_hist[-1]['time'] # Get last entry
+            try:
+                last_time = datetime.datetime.strptime(last_time_str, "%Y-%m-%d %H:%M:%S")
+                if (now - last_time).total_seconds() < 86400: # 24 hours
+                    is_active = True
+            except:
+                pass
+        
+        if is_active:
+            active_count += 1
+        else:
+            inactive_count += 1
+
+    buff += (
+        f"🟢 Active Users (24h): `{active_count}`\n"
+        f"🔴 Inactive Users: `{inactive_count}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"_Active = Used bot in last 24 hours._"
+    )
+    
+    bot.reply_to(message, buff, parse_mode="Markdown")
 
 # --- START ---
 print("Bot Running Successfully...")
